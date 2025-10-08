@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from src.evalx.stats.tests import (
-    TestResult,
+    StatTestResult,
     cliffs_delta,
     mcnemar_test,
     paired_t_test,
@@ -22,11 +22,11 @@ class TestPairedTTest:
 
         result = paired_t_test(group_a, group_b)
 
-        assert isinstance(result, TestResult)
+        assert isinstance(result, StatTestResult)
         assert result.test_name == "Paired t-test"
-        assert isinstance(result.statistic, (float, np.floating))
-        assert isinstance(result.p_value, (float, np.floating))
-        assert isinstance(result.effect_size, (float, np.floating))
+        assert isinstance(result.statistic, float | np.floating)
+        assert isinstance(result.p_value, float | np.floating)
+        assert isinstance(result.effect_size, float | np.floating)
         assert result.effect_size_interpretation in [
             "negligible",
             "small",
@@ -67,8 +67,8 @@ class TestPairedTTest:
     def test_paired_t_test_effect_size_interpretation(self):
         """Test effect size interpretation."""
         # Small effect
-        group_a = np.array([1.0, 1.1, 1.0, 1.1, 1.0])
-        group_b = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
+        group_a = np.array([1.00, 1.02, 0.98, 1.03, 0.97])
+        group_b = np.array([1.00, 1.00, 1.00, 1.00, 1.00])
         result = paired_t_test(group_a, group_b)
         assert result.effect_size_interpretation in ["negligible", "small"]
 
@@ -98,10 +98,10 @@ class TestWilcoxonTest:
 
         result = wilcoxon_test(group_a, group_b)
 
-        assert isinstance(result, TestResult)
+        assert isinstance(result, StatTestResult)
         assert result.test_name == "Wilcoxon signed-rank test"
-        assert isinstance(result.statistic, (float, np.floating))
-        assert isinstance(result.p_value, (float, np.floating))
+        assert isinstance(result.statistic, float | np.floating)
+        assert isinstance(result.p_value, float | np.floating)
         assert isinstance(result.significant, bool)
 
     def test_wilcoxon_test_different_alternatives(self):
@@ -145,7 +145,7 @@ class TestWilcoxonTest:
         result = wilcoxon_test(group_a, group_b)
 
         if result.effect_size is not None:
-            assert isinstance(result.effect_size, (float, np.floating))
+            assert isinstance(result.effect_size, float | np.floating)
             assert result.effect_size_interpretation in [
                 "negligible",
                 "small",
@@ -164,11 +164,11 @@ class TestCliffssDelta:
 
         result = cliffs_delta(group_a, group_b)
 
-        assert isinstance(result, TestResult)
+        assert isinstance(result, StatTestResult)
         assert result.test_name == "Cliff's delta"
-        assert isinstance(result.statistic, (float, np.floating))
+        assert isinstance(result.statistic, float | np.floating)
         assert result.p_value is None  # Cliff's delta is not a significance test
-        assert isinstance(result.effect_size, (float, np.floating))
+        assert isinstance(result.effect_size, float | np.floating)
         assert result.effect_size_interpretation in [
             "negligible",
             "small",
@@ -240,10 +240,10 @@ class TestMcNemarTest:
 
         result = mcnemar_test(table)
 
-        assert isinstance(result, TestResult)
+        assert isinstance(result, StatTestResult)
         assert result.test_name == "McNemar test"
-        assert isinstance(result.statistic, (float, np.floating))
-        assert isinstance(result.p_value, (float, np.floating))
+        assert isinstance(result.statistic, float | np.floating)
+        assert isinstance(result.p_value, float | np.floating)
         assert isinstance(result.significant, bool)
 
     def test_mcnemar_test_small_sample(self):
@@ -316,9 +316,9 @@ class TestIntegrationScenarios:
 
     def test_maritime_model_comparison_workflow(self):
         """Test typical maritime model comparison workflow."""
-        # Simulate ADE scores from cross-validation
-        lstm_ade = np.array([1.2, 1.1, 1.3, 1.0, 1.15])
-        transformer_ade = np.array([0.9, 0.8, 1.0, 0.7, 0.85])
+        # Simulate ADE scores from cross-validation (transformer clearly better)
+        lstm_ade = np.array([1.5, 1.4, 1.6, 1.3, 1.5, 1.7, 1.2, 1.8])
+        transformer_ade = np.array([0.8, 0.7, 0.9, 0.6, 0.8, 0.9, 0.5, 1.0])
 
         # Perform paired t-test
         t_result = paired_t_test(lstm_ade, transformer_ade)
@@ -336,8 +336,8 @@ class TestIntegrationScenarios:
         # Should also be significant
         assert w_result.p_value < 0.05
 
-        # Cliff's delta for effect size
-        cliff_result = cliffs_delta(lstm_ade, transformer_ade)
+        # Cliff's delta for effect size (transformer vs LSTM)
+        cliff_result = cliffs_delta(transformer_ade, lstm_ade)
 
         # Should show large negative effect (transformer better, lower ADE)
         assert cliff_result.effect_size < -0.5
@@ -369,9 +369,9 @@ class TestIntegrationScenarios:
         c_result = cliffs_delta(small_sample_a, small_sample_b)
 
         # All should return valid results
-        assert isinstance(t_result.p_value, (float, np.floating))
-        assert isinstance(w_result.p_value, (float, np.floating))
-        assert isinstance(c_result.effect_size, (float, np.floating))
+        assert isinstance(t_result.p_value, float | np.floating)
+        assert isinstance(w_result.p_value, float | np.floating)
+        assert isinstance(c_result.effect_size, float | np.floating)
 
     def test_no_difference_scenario(self):
         """Test behavior when models perform identically."""

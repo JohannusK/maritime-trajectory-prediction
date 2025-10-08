@@ -15,20 +15,25 @@ import torch
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../src"))
 
+# Import unified API types
+from models import (  # These are the Lightning versions from unified API
+    AnomalyTransformer,
+    MotionTransformer,
+)
 from models.anomaly_transformer import (
     MARITIME_ANOMALY_CONFIG,
     AnomalyAttention,
-    AnomalyTransformer,
     AnomalyTransformerTrainer,
     TransformerEncoderLayer,
     create_anomaly_transformer,
     create_maritime_anomaly_transformer,
 )
+from models.blocks.motion_transformer import (
+    ContextEncoder,
+    MotionDecoder,  # Raw torch module for internal testing
+)
 from models.motion_transformer import (
     MARITIME_MTR_CONFIG,
-    ContextEncoder,
-    MotionDecoder,
-    MotionTransformer,
     MotionTransformerTrainer,
     create_maritime_motion_transformer,
     create_motion_transformer,
@@ -277,10 +282,10 @@ class TestMotionTransformer:
         assert outputs["confidences"].shape == (batch_size, 4)  # n_queries
         assert outputs["query_features"].shape == (batch_size, 10, 4, 128)
 
-        # Check confidence values are in [0, 1]
-        assert (outputs["confidences"] >= 0).all() and (
-            outputs["confidences"] <= 1
-        ).all()
+        # Check confidence values are logits (can be any real values for cross_entropy loss)
+        assert torch.isfinite(
+            outputs["confidences"]
+        ).all()  # Just check they're valid numbers
 
     def test_motion_transformer_forward(self, motion_transformer, sample_context):
         """Test MotionTransformer forward pass."""

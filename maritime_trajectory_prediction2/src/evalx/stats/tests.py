@@ -6,9 +6,28 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
+# Effect size thresholds (Cohen's conventions)
+NEGLIGIBLE_EFFECT_THRESHOLD = 0.2
+SMALL_EFFECT_THRESHOLD = 0.5
+MEDIUM_EFFECT_THRESHOLD = 0.8
+
+# Wilcoxon test thresholds
+WILCOXON_NORMAL_APPROX_THRESHOLD = 20
+WILCOXON_NEGLIGIBLE_THRESHOLD = 0.1
+WILCOXON_SMALL_THRESHOLD = 0.3
+WILCOXON_MEDIUM_THRESHOLD = 0.5
+
+# Cliff's delta thresholds
+CLIFFS_NEGLIGIBLE_THRESHOLD = 0.147
+CLIFFS_SMALL_THRESHOLD = 0.33
+CLIFFS_MEDIUM_THRESHOLD = 0.474
+
+# McNemar test threshold
+MCNEMAR_EXACT_TEST_THRESHOLD = 25
+
 
 @dataclass
-class TestResult:
+class StatTestResult:
     """Result of statistical significance test."""
 
     test_name: str
@@ -26,7 +45,7 @@ def paired_t_test(
     group_b: np.ndarray,
     alpha: float = 0.05,
     alternative: str = "two-sided",
-) -> TestResult:
+) -> StatTestResult:
     """
     Paired t-test for comparing two related samples.
 
@@ -37,7 +56,7 @@ def paired_t_test(
         alternative: 'two-sided', 'less', or 'greater'
 
     Returns:
-        TestResult with test statistics and interpretation
+        StatTestResult with test statistics and interpretation
 
     Example:
         >>> model_a_scores = np.array([0.85, 0.87, 0.83, 0.89, 0.86])
@@ -48,31 +67,43 @@ def paired_t_test(
     if len(group_a) != len(group_b):
         raise ValueError("Groups must have equal length for paired t-test")
 
-    # Perform paired t-test
-    statistic, p_value = stats.ttest_rel(group_a, group_b, alternative=alternative)
+    # Check for identical groups (no difference to test)
+    differences = group_a - group_b
+    if np.all(differences == 0):
+        # No difference between groups - return non-significant result
+        statistic = 0.0
+        p_value = 1.0
+    else:
+        # Perform paired t-test
+        statistic, p_value = stats.ttest_rel(group_a, group_b, alternative=alternative)
 
     # Calculate effect size (Cohen's d for paired samples)
-    differences = group_a - group_b
-    effect_size = np.mean(differences) / np.std(differences, ddof=1)
+    # (differences already calculated above)
+    std_diff = np.std(differences, ddof=1)
+    if std_diff == 0 or np.isnan(std_diff):
+        # Handle case where differences are identical (no variation)
+        effect_size = 0.0
+    else:
+        effect_size = np.mean(differences) / std_diff
 
     # Interpret effect size
     abs_effect = abs(effect_size)
-    if abs_effect < 0.2:
+    if abs_effect < NEGLIGIBLE_EFFECT_THRESHOLD:
         effect_interpretation = "negligible"
-    elif abs_effect < 0.5:
+    elif abs_effect < SMALL_EFFECT_THRESHOLD:
         effect_interpretation = "small"
-    elif abs_effect < 0.8:
+    elif abs_effect < MEDIUM_EFFECT_THRESHOLD:
         effect_interpretation = "medium"
     else:
         effect_interpretation = "large"
 
-    return TestResult(
+    return StatTestResult(
         test_name="Paired t-test",
         statistic=statistic,
         p_value=p_value,
         effect_size=effect_size,
         effect_size_interpretation=effect_interpretation,
-        significant=p_value < alpha,
+        significant=bool(p_value < alpha),
         alpha=alpha,
         additional_info={
             "alternative": alternative,
@@ -88,7 +119,7 @@ def wilcoxon_test(
     alpha: float = 0.05,
     alternative: str = "two-sided",
     zero_method: str = "wilcox",
-) -> TestResult:
+) -> StatTestResult:
     """
     Wilcoxon signed-rank test for comparing two related samples (non-parametric).
 
@@ -100,7 +131,7 @@ def wilcoxon_test(
         zero_method: Method for handling zero differences
 
     Returns:
-        TestResult with test statistics and interpretation
+        StatTestResult with test statistics and interpretation
     """
     if len(group_a) != len(group_b):
         raise ValueError("Groups must have equal length for Wilcoxon test")
@@ -111,8 +142,8 @@ def wilcoxon_test(
             group_a, group_b, alternative=alternative, zero_method=zero_method
         )
     except ValueError as e:
-        warnings.warn(f"Wilcoxon test failed: {e}")
-        return TestResult(
+        warnings.warn(f"Wilcoxon test failed: {e}", stacklevel=2)
+        return StatTestResult(
             test_name="Wilcoxon signed-rank test",
             statistic=np.nan,
             p_value=np.nan,
@@ -123,7 +154,7 @@ def wilcoxon_test(
 
     # Calculate effect size (r = Z / sqrt(N))
     n = len(group_a)
-    if n > 20:  # Normal approximation
+    if n > WILCOXON_NORMAL_APPROX_THRESHOLD:  # Normal approximation
         z_score = abs(statistic - n * (n + 1) / 4) / np.sqrt(
             n * (n + 1) * (2 * n + 1) / 24
         )
@@ -133,24 +164,24 @@ def wilcoxon_test(
 
     # Interpret effect size
     if effect_size is not None:
-        if effect_size < 0.1:
+        if effect_size < WILCOXON_NEGLIGIBLE_THRESHOLD:
             effect_interpretation = "negligible"
-        elif effect_size < 0.3:
+        elif effect_size < WILCOXON_SMALL_THRESHOLD:
             effect_interpretation = "small"
-        elif effect_size < 0.5:
+        elif effect_size < WILCOXON_MEDIUM_THRESHOLD:
             effect_interpretation = "medium"
         else:
             effect_interpretation = "large"
     else:
         effect_interpretation = None
 
-    return TestResult(
+    return StatTestResult(
         test_name="Wilcoxon signed-rank test",
         statistic=statistic,
         p_value=p_value,
         effect_size=effect_size,
         effect_size_interpretation=effect_interpretation,
-        significant=p_value < alpha,
+        significant=bool(p_value < alpha),
         alpha=alpha,
         additional_info={
             "alternative": alternative,
@@ -160,7 +191,7 @@ def wilcoxon_test(
     )
 
 
-def cliffs_delta(group_a: np.ndarray, group_b: np.ndarray) -> TestResult:
+def cliffs_delta(group_a: np.ndarray, group_b: np.ndarray) -> StatTestResult:
     """
     Cliff's delta effect size measure for ordinal data.
 
@@ -169,7 +200,7 @@ def cliffs_delta(group_a: np.ndarray, group_b: np.ndarray) -> TestResult:
         group_b: Second group measurements
 
     Returns:
-        TestResult with Cliff's delta and interpretation
+        StatTestResult with Cliff's delta and interpretation
 
     Note:
         Cliff's delta ranges from -1 to 1:
@@ -193,16 +224,16 @@ def cliffs_delta(group_a: np.ndarray, group_b: np.ndarray) -> TestResult:
 
     # Interpret effect size
     abs_delta = abs(delta)
-    if abs_delta < 0.147:
+    if abs_delta < CLIFFS_NEGLIGIBLE_THRESHOLD:
         interpretation = "negligible"
-    elif abs_delta < 0.33:
+    elif abs_delta < CLIFFS_SMALL_THRESHOLD:
         interpretation = "small"
-    elif abs_delta < 0.474:
+    elif abs_delta < CLIFFS_MEDIUM_THRESHOLD:
         interpretation = "medium"
     else:
         interpretation = "large"
 
-    return TestResult(
+    return StatTestResult(
         test_name="Cliff's delta",
         statistic=delta,
         p_value=None,  # Cliff's delta is an effect size, not a test
@@ -212,7 +243,7 @@ def cliffs_delta(group_a: np.ndarray, group_b: np.ndarray) -> TestResult:
     )
 
 
-def mcnemar_test(contingency_table: np.ndarray, alpha: float = 0.05) -> TestResult:
+def mcnemar_test(contingency_table: np.ndarray, alpha: float = 0.05) -> StatTestResult:
     """
     McNemar test for comparing two classification models on the same dataset.
 
@@ -223,7 +254,7 @@ def mcnemar_test(contingency_table: np.ndarray, alpha: float = 0.05) -> TestResu
         alpha: Significance level
 
     Returns:
-        TestResult with McNemar test statistics
+        StatTestResult with McNemar test statistics
 
     Example:
         >>> # Model A vs Model B classification results
@@ -238,9 +269,9 @@ def mcnemar_test(contingency_table: np.ndarray, alpha: float = 0.05) -> TestResu
     c = contingency_table[1, 0]  # Model 1 wrong, Model 2 correct
 
     # McNemar test with continuity correction
-    if b + c < 25:
+    if b + c < MCNEMAR_EXACT_TEST_THRESHOLD:
         # Use exact binomial test for small samples
-        statistic = min(b, c)
+        statistic = float(min(b, c))
         p_value = 2 * stats.binom.cdf(statistic, b + c, 0.5)
         test_type = "exact"
     else:
@@ -249,11 +280,11 @@ def mcnemar_test(contingency_table: np.ndarray, alpha: float = 0.05) -> TestResu
         p_value = 1 - stats.chi2.cdf(statistic, 1)
         test_type = "chi-square"
 
-    return TestResult(
+    return StatTestResult(
         test_name="McNemar test",
         statistic=statistic,
         p_value=p_value,
-        significant=p_value < alpha,
+        significant=bool(p_value < alpha),
         alpha=alpha,
         additional_info={
             "test_type": test_type,
